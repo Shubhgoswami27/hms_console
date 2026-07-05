@@ -1,0 +1,174 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  role          String    @default("PATIENT") // "SUPER_ADMIN" | "DOCTOR" | "NURSE" | "PATIENT"
+  firstName     String
+  lastName      String
+  phone         String?
+  avatarUrl     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Role profiles
+  doctorProfile Doctor?
+  nurseProfile  Nurse?
+  patientProfile Patient?
+}
+
+model Doctor {
+  id             String        @id @default(uuid())
+  userId         String        @unique
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  specialization String
+  licenseNumber  String        @unique
+  department     String
+  availability   String        // JSON string storing weekly schedule
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  appointments   Appointment[]
+  medicalReports MedicalReport[]
+}
+
+model Nurse {
+  id             String        @id @default(uuid())
+  userId         String        @unique
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department     String
+  licenseNumber  String        @unique
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  bedAssignments BedAssignment[]
+  callResponses  NurseCall[]   @relation("NurseResponder")
+}
+
+model Patient {
+  id             String        @id @default(uuid())
+  userId         String        @unique
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dateOfBirth    DateTime
+  gender         String
+  bloodGroup     String?
+  address        String?
+  emergencyContact String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  vitals         VitalSign[]
+  appointments   Appointment[]
+  bedAssignments BedAssignment[]
+  nurseCalls     NurseCall[]
+  bills          Bill[]
+  medicalReports MedicalReport[]
+}
+
+model VitalSign {
+  id             String    @id @default(uuid())
+  patientId      String
+  patient        Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  temperature    Float?    // Celsius
+  bloodPressure  String?   // "120/80"
+  pulseRate      Int?      // bpm
+  respiratoryRate Int?     // bpm
+  oxygenSat      Int?      // SpO2 %
+  recordedAt     DateTime  @default(now())
+}
+
+model Bed {
+  id            String         @id @default(uuid())
+  number        String         @unique
+  type          String         // "ICU" | "GENERAL" | "EMERGENCY" | "PRIVATE"
+  wardName      String
+  status        String         @default("AVAILABLE") // "AVAILABLE" | "OCCUPIED" | "MAINTENANCE"
+  pricePerDay   Float          @default(50.0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  assignments   BedAssignment[]
+}
+
+model BedAssignment {
+  id         String    @id @default(uuid())
+  bedId      String
+  bed        Bed       @relation(fields: [bedId], references: [id], onDelete: Cascade)
+  patientId  String
+  patient    Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  nurseId    String?
+  nurse      Nurse?    @relation(fields: [nurseId], references: [id], onDelete: SetNull)
+  assignedAt DateTime  @default(now())
+  dischargedAt DateTime?
+}
+
+model Appointment {
+  id          String            @id @default(uuid())
+  patientId   String
+  patient     Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId    String
+  doctor      Doctor            @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  dateTime    DateTime
+  reason      String
+  status      String            @default("PENDING") // "PENDING" | "CONFIRMED" | "CANCELLED" | "COMPLETED"
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model Resource {
+  id          String         @id @default(uuid())
+  name        String         @unique
+  type        String         // "Ambulance", "Ventilator", "Oxygen Cylinder", etc.
+  status      String         @default("AVAILABLE") // "AVAILABLE" | "IN_USE" | "MAINTENANCE" | "OUT_OF_STOCK"
+  location    String?
+  quantity    Int            @default(1)
+  description String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model NurseCall {
+  id         String     @id @default(uuid())
+  patientId  String
+  patient    Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  bedNumber  String
+  status     String     @default("PENDING") // "PENDING" | "RESPONDING" | "RESOLVED"
+  message    String?
+  nurseId    String?
+  nurse      Nurse?     @relation("NurseResponder", fields: [nurseId], references: [id], onDelete: SetNull)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model Bill {
+  id          String   @id @default(uuid())
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  amount      Float
+  status      String   // "PENDING", "PAID"
+  dueDate     DateTime
+  description String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model MedicalReport {
+  id          String   @id @default(uuid())
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId    String
+  doctor      Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  fileUrl     String
+  createdAt   DateTime @default(now())
+}

@@ -1,0 +1,339 @@
+# Hospital Management System (HMS) Implementation Plan
+
+Build a production-ready, feature-rich Hospital Management System (HMS) with a separate Next.js + Tailwind CSS frontend and a Node.js + Express + Prisma + Socket.io backend. The system supports four distinct roles: Super Admin, Doctor, Nurse, and Patient, with secure RBAC and real-time updates.
+
+## User Review Required
+
+> [!IMPORTANT]
+> - **Database Credentials**: By default, the backend will be configured to run with a local PostgreSQL instance or SQLite for ease of local development. For production, Supabase connection details will need to be provided in the backend `.env` file.
+> - **Cloudinary Config**: File uploads for medical reports and user profiles require Cloudinary credentials (`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`). If not supplied initially, a local fallback storage service will save files to disk so development can proceed seamlessly.
+> - **PowerShell Script Policy**: Since script execution is disabled on the current Windows machine, all Node/NPM commands will be executed via `npm.cmd` or `npx.cmd`.
+
+## Proposed Architecture
+
+```mermaid
+graph TD
+    User([User Browser]) -->|Next.js App / Tailwind / Shadcn| FE[Frontend Server]
+    FE -->|HTTP API Requests| BE[Express.js Backend]
+    FE -->|WebSocket Events| WS[Socket.io Real-time Server]
+    BE -->|Prisma Client| DB[(PostgreSQL / Supabase)]
+    BE -->|File Uploads| Cloudinary[Cloudinary API]
+    WS -->|Real-time Beds & Calls| BE
+```
+
+## Database Schema (Prisma)
+
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  SUPER_ADMIN
+  DOCTOR
+  NURSE
+  PATIENT
+}
+
+enum BedType {
+  ICU
+  GENERAL
+  EMERGENCY
+  PRIVATE
+}
+
+enum BedStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+}
+
+enum ResourceStatus {
+  AVAILABLE
+  IN_USE
+  MAINTENANCE
+  OUT_OF_STOCK
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum CallStatus {
+  PENDING
+  RESPONDING
+  RESOLVED
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  role          Role      @default(PATIENT)
+  firstName     String
+  lastName      String
+  phone         String?
+  avatarUrl     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Role profiles
+  doctorProfile Doctor?
+  nurseProfile  Nurse?
+  patientProfile Patient?
+}
+
+model Doctor {
+  id             String        @id @default(uuid())
+  userId         String        @unique
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  specialization String
+  licenseNumber  String        @unique
+  department     String
+  availability   String        // JSON string storing weekly schedule
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  appointments   Appointment[]
+  medicalReports MedicalReport[]
+}
+
+model Nurse {
+  id             String        @id @default(uuid())
+  userId         String        @unique
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department     String
+  licenseNumber  String        @unique
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  bedAssignments BedAssignment[]
+  callResponses  NurseCall[]   @relation("NurseResponder")
+}
+
+model Patient {
+  id             String        @id @default(uuid())
+  userId         String        @unique
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dateOfBirth    DateTime
+  gender         String
+  bloodGroup     String?
+  address        String?
+  emergencyContact String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  vitals         VitalSign[]
+  appointments   Appointment[]
+  bedAssignments BedAssignment[]
+  nurseCalls     NurseCall[]
+  bills          Bill[]
+  medicalReports MedicalReport[]
+}
+
+model VitalSign {
+  id             String    @id @default(uuid())
+  patientId      String
+  patient        Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  temperature    Float?    // Celsius
+  bloodPressure  String?   // "120/80"
+  pulseRate      Int?      // bpm
+  respiratoryRate Int?     // bpm
+  oxygenSat      Int?      // SpO2 %
+  recordedAt     DateTime  @default(now())
+}
+
+model Bed {
+  id            String         @id @default(uuid())
+  number        String         @unique
+  type          BedType
+  wardName      String
+  status        BedStatus      @default(AVAILABLE)
+  pricePerDay   Float          @default(50.0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  assignments   BedAssignment[]
+}
+
+model BedAssignment {
+  id         String    @id @default(uuid())
+  bedId      String
+  bed        Bed       @relation(fields: [bedId], references: [id], onDelete: Cascade)
+  patientId  String
+  patient    Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  nurseId    String?
+  nurse      Nurse?    @relation(fields: [nurseId], references: [id], onDelete: SetNull)
+  assignedAt DateTime  @default(now())
+  dischargedAt DateTime?
+}
+
+model Appointment {
+  id          String            @id @default(uuid())
+  patientId   String
+  patient     Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId    String
+  doctor      Doctor            @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  dateTime    DateTime
+  reason      String
+  status      AppointmentStatus @default(PENDING)
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model Resource {
+  id          String         @id @default(uuid())
+  name        String         @unique
+  type        String         // "Ambulance", "Ventilator", "Oxygen Cylinder", etc.
+  status      ResourceStatus @default(AVAILABLE)
+  location    String?
+  quantity    Int            @default(1)
+  description String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model NurseCall {
+  id         String     @id @default(uuid())
+  patientId  String
+  patient    Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  bedNumber  String
+  status     CallStatus @default(PENDING)
+  message    String?
+  nurseId    String?
+  nurse      Nurse?     @relation("NurseResponder", fields: [nurseId], references: [id], onDelete: SetNull)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model Bill {
+  id          String   @id @default(uuid())
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  amount      Float
+  status      String   // "PENDING", "PAID", "PARTIAL"
+  dueDate     DateTime
+  description String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model MedicalReport {
+  id          String   @id @default(uuid())
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId    String
+  doctor      Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  fileUrl     String
+  createdAt   DateTime @default(now())
+}
+```
+
+## Proposed Changes & Phased Plan
+
+### Phase 1: Directory Setup & Core API Backend
+- Initialize standard `backend/` Node + TypeScript project.
+- Install dependencies: `express`, `cors`, `dotenv`, `bcryptjs`, `jsonwebtoken`, `socket.io`, `cloudinary`, `prisma`, `@prisma/client`.
+- Add database configuration, Prisma integration, and models.
+- Set up global error handling, logging, and token verification middlewares.
+- Implement RBAC authorization helper functions.
+
+### Phase 2: User Authentication API & Seeds
+- Implement backend authentication endpoints:
+  - `POST /api/auth/register` (registers user profiles for Patient, Doctor, Nurse)
+  - `POST /api/auth/login` (generates JWT tokens, returns user info & role)
+  - `GET /api/auth/me` (returns current user detail from token)
+- Write an extensive db seeding script (`backend/prisma/seed.ts`) with mock users, admin account, doctors, nurses, beds, and resources.
+
+### Phase 3: Next.js Frontend Framework & Authentication
+- Initialize Next.js app in `frontend/` using tailwind and typescript.
+- Configure Tailwind CSS styles and layout.
+- Install icons, chart libraries, and components: Lucide React, Recharts, and custom form inputs.
+- Implement JWT storage utility and Auth Context Provider.
+- Build clean, modern page forms:
+  - Landing / Homepage with professional healthcare UI.
+  - Log In Page with role select or automatic routing.
+  - Sign Up Page with field validation.
+
+### Phase 4: Role-Based Dashboards & Layouts
+- Create responsive layouts with collapsible sidebars and Light/Dark mode.
+- Render tailored panels based on role:
+  - **Super Admin**: Analytics dashboard cards, recent events, charts.
+  - **Doctor**: Appointment queue, list of active patients.
+  - **Nurse**: Ward monitoring panel, active bed count, incoming nurse calls.
+  - **Patient**: Bed status, personal medical timeline, booking summary, pending bills.
+
+### Phase 5: Patient Management Module
+- **Backend**:
+  - `GET /api/patients` (paginated, search, filter)
+  - `GET /api/patients/:id` (detailed history, vitals, appointments, bills)
+  - `POST /api/patients/:id/vitals` (save patient vitals log)
+- **Frontend**:
+  - Patient directory grid/table.
+  - Patient details view showing vitals trends charts (temperature, BP history).
+  - Patient registration and edit forms.
+
+### Phase 6: Doctor & Nurse Staff Directory
+- **Backend**:
+  - Staff CRUD and schedules management.
+- **Frontend**:
+  - Admin-only staff dashboard for adding, editing, and deleting Doctor/Nurse accounts.
+  - List of doctors and schedule blocks.
+
+### Phase 7: Appointments & Booking Module
+- **Backend**:
+  - `GET /api/appointments` (filtered by role and date)
+  - `POST /api/appointments` (for patient to schedule)
+  - `PATCH /api/appointments/:id` (doctor/admin updates status: confirm/complete/cancel)
+- **Frontend**:
+  - Patient interactive booking calendar & form.
+  - Doctor scheduler with "accept/reject" and notes modal.
+
+### Phase 8: Real-Time Bed & Resource Tracking
+- **Backend**:
+  - Socket.io integration to broadcast updates when beds/resources change.
+  - CRUD endpoints for Beds (`/api/beds`) and Resources (`/api/resources`).
+- **Frontend**:
+  - Interactive grid display of hospital wards and bed statuses.
+  - Real-time notification banners and live indicator count changes when resources are checked out.
+
+### Phase 9: Real-Time Nurse Call System
+- **Backend**:
+  - WebSocket gateway for Nurse Call requests.
+- **Frontend**:
+  - Patient dashboard button "Call Nurse".
+  - Broadcasts call alerts instantly to Nurse Dashboard using Socket.io.
+  - Nurse dashboard plays sound/vibration alert and allows nurse to press "Respond" or "Resolve".
+
+### Phase 10: Billing, Reports, & PDF Generation
+- **Backend**:
+  - PDF Generation service using `pdf-lib` or a custom HTML template exporter.
+  - CRUD for Medical Reports and Invoices.
+  - Upload file API with local filesystem fallback if Cloudinary is not configured.
+- **Frontend**:
+  - Invoices page displaying cost tables, print invoices button.
+  - Medical records list with viewing and download functions.
+
+## Verification Plan
+
+### Automated Tests
+- Run tests via backend script tests (can configure a health-check testing suite in `backend/tests`).
+- Frontend linting and typechecking via `npm run build`.
+
+### Manual Verification
+- Launch the backend development server and check API responses via Postman/curl.
+- Validate role-based route guards in Next.js by logging in as each user type.
+- Verify real-time updates by opening two browser windows side-by-side:
+  - Window 1: Patient triggers a Nurse Call.
+  - Window 2: Nurse receives the real-time card notification without reloading.
