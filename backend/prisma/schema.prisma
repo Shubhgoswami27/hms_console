@@ -150,15 +150,18 @@ model NurseCall {
 }
 
 model Bill {
-  id          String   @id @default(uuid())
-  patientId   String
-  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  amount      Float
-  status      String   // "PENDING", "PAID"
-  dueDate     DateTime
-  description String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String    @id @default(uuid())
+  patientId     String
+  patient       Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  amount        Float
+  status        String    // "PENDING", "PAID"
+  dueDate       DateTime
+  description   String
+  paymentMethod String?   // "CREDIT_CARD" | "DEBIT_CARD" | "UPI" | "CASH" | "INSURANCE"
+  paidAt        DateTime?
+  receiptNumber String?   @unique
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 model MedicalReport {

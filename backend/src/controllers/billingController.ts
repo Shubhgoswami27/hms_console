@@ -73,13 +73,19 @@ export const createBill = async (req: AuthRequest, res: Response) => {
 export const payBill = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const { paymentMethod } = req.body;
+
+    const validMethods = ['CREDIT_CARD', 'DEBIT_CARD', 'UPI', 'CASH', 'INSURANCE'];
+    if (!paymentMethod || !validMethods.includes(paymentMethod)) {
+      return res.status(400).json({ message: 'Valid payment method is required' });
+    }
 
     const bill = await prisma.bill.findUnique({
       where: { id },
       include: {
         patient: {
           include: {
-            user: { select: { email: true } }
+            user: { select: { firstName: true, lastName: true, email: true } }
           }
         }
       }
@@ -89,18 +95,36 @@ export const payBill = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ message: 'Invoice not found' });
     }
 
+    if (bill.status === 'PAID') {
+      return res.status(400).json({ message: 'Invoice is already paid' });
+    }
+
     // RBAC: Patients can only pay their own bills
     if (req.user?.role === 'PATIENT' && bill.patientId !== req.user.profileId) {
       return res.status(403).json({ message: 'Access denied: cannot pay another patient\'s invoice' });
     }
 
+    const receiptNumber = `RCP-${Date.now().toString(36).toUpperCase()}-${id.slice(0, 4).toUpperCase()}`;
+
     const updated = await prisma.bill.update({
       where: { id },
-      data: { status: 'PAID' }
+      data: {
+        status: 'PAID',
+        paymentMethod,
+        paidAt: new Date(),
+        receiptNumber
+      },
+      include: {
+        patient: {
+          include: {
+            user: { select: { firstName: true, lastName: true, email: true } }
+          }
+        }
+      }
     });
 
     res.json({
-      message: 'Payment processed successfully (Simulated)',
+      message: 'Payment processed successfully',
       bill: updated
     });
   } catch (error: any) {

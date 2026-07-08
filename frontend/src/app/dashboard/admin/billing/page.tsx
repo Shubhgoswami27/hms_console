@@ -93,6 +93,7 @@ export default function BillingManagement() {
                     <th className="py-4">Amount</th>
                     <th className="py-4">Due Date</th>
                     <th className="py-4">Status</th>
+                    <th className="py-4">Payment</th>
                     <th className="py-4 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -114,6 +115,13 @@ export default function BillingManagement() {
                             {isPaid ? <CheckCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
                             <span>{bill.status}</span>
                           </span>
+                        </td>
+                        <td className="py-4 text-[10px] text-slate-400">
+                          {isPaid && bill.paymentMethod ? (
+                            <span>{bill.paymentMethod.replace('_', ' ')}</span>
+                          ) : (
+                            <span>—</span>
+                          )}
                         </td>
                         <td className="py-4 text-right">
                           <button
@@ -262,6 +270,23 @@ export default function BillingManagement() {
                   <span className="text-slate-400 print:text-slate-600">Total Invoice Amount:</span>
                   <span className="text-xl text-teal-400 print:text-slate-900">${selectedInvoice.amount.toFixed(2)}</span>
                 </div>
+
+                {selectedInvoice.status === 'PAID' && (
+                  <div className="grid grid-cols-2 gap-4 text-xs pt-2">
+                    <div>
+                      <p className="text-slate-500">Payment Method</p>
+                      <p className="font-bold text-slate-200 print:text-slate-800">
+                        {selectedInvoice.paymentMethod?.replace('_', ' ') || '—'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-slate-500">Receipt No.</p>
+                      <p className="font-mono font-bold text-slate-200 print:text-slate-800">
+                        {selectedInvoice.receiptNumber || '—'}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Actions */}

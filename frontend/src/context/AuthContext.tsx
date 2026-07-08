@@ -28,8 +28,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const storedUser = localStorage.getItem('hms_user');
 
       if (token && storedUser) {
-        setUser(JSON.parse(storedUser));
-        // Verify token with backend
         try {
           const freshUser = await api.auth.getMe();
           let profileId: string | undefined;
@@ -49,9 +47,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           setUser(updatedUser);
           localStorage.setItem('hms_user', JSON.stringify(updatedUser));
-        } catch (error) {
-          console.error('Auth verification failed, logging out', error);
-          logout();
+        } catch {
+          localStorage.removeItem('hms_token');
+          localStorage.removeItem('hms_user');
+          setUser(null);
         }
       }
       setLoading(false);

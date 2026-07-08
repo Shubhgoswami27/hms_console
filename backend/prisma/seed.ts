@@ -308,7 +308,10 @@ async function main() {
           amount: 120.00,
           status: 'PAID',
           dueDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
-          description: 'Blood panel and ECG diagnostics fee'
+          description: 'Blood panel and ECG diagnostics fee',
+          paymentMethod: 'UPI',
+          paidAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+          receiptNumber: 'RCP-SEED001-JANE'
         }
       ]
     });

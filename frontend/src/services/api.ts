@@ -16,8 +16,26 @@ const getHeaders = (isMultipart = false) => {
   return headers;
 };
 
+const clearSession = () => {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('hms_token');
+    localStorage.removeItem('hms_user');
+  }
+};
+
+const isPublicAuthPage = () => {
+  if (typeof window === 'undefined') return false;
+  const path = window.location.pathname;
+  return path === '/login' || path === '/register' || path === '/';
+};
+
 // Generic fetch wrapper
-const request = async (path: string, options: RequestInit = {}, isMultipart = false) => {
+const request = async (
+  path: string,
+  options: RequestInit = {},
+  isMultipart = false,
+  authOptions: { silent?: boolean } = {}
+) => {
   const url = `${API_URL}${path}`;
   const headers = getHeaders(isMultipart);
   
@@ -31,10 +49,9 @@ const request = async (path: string, options: RequestInit = {}, isMultipart = fa
 
   const response = await fetch(url, config);
 
-  if (response.status === 401) {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('hms_token');
-      localStorage.removeItem('hms_user');
+  if (response.status === 401 || response.status === 403) {
+    clearSession();
+    if (!authOptions.silent && !isPublicAuthPage()) {
       window.location.href = '/login';
     }
     throw new Error('Session expired. Please login again.');
@@ -59,7 +76,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(userData)
     }),
-    getMe: () => request('/auth/me')
+    getMe: () => request('/auth/me', {}, false, { silent: true })
   },
 
   // 2. Patient Services
@@ -168,8 +185,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(billData)
     }),
-    pay: (id: string) => request(`/billing/${id}/pay`, {
-      method: 'POST'
+    pay: (id: string, paymentMethod: string) => request(`/billing/${id}/pay`, {
+      method: 'POST',
+      body: JSON.stringify({ paymentMethod })
     })
   },
 
